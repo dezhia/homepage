@@ -1,0 +1,85 @@
+---
+# Homepage 网站部署 Playbook
+# 用法：ansible-playbook deploy.yml
+
+- name: 部署 Homepage 网站
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+
+  vars:
+    project_dir: "/home/kali/web-projects/homepage"
+    node_version: "22.x"
+    build_output_dir: "dist"
+
+  tasks:
+    - name: 检查 Node.js 版本
+      command: node --version
+      register: node_version_check
+      changed_when: false
+
+    - name: 显示 Node.js 版本
+      debug:
+        msg: "当前 Node.js 版本：{{ node_version_check.stdout }}"
+
+    - name: 进入项目目录
+      command: pwd
+      args:
+        chdir: "{{ project_dir }}"
+      register: pwd_check
+      changed_when: false
+
+    - name: 安装依赖
+      command: npm ci --prefer-offline
+      args:
+        chdir: "{{ project_dir }}"
+      register: npm_install
+      changed_when: "'added' in npm_install.stdout or 'changed' in npm_install.stdout"
+
+    - name: 执行安全检查
+      command: npm audit --audit-level=high
+      args:
+        chdir: "{{ project_dir }}"
+      register: npm_audit
+      changed_when: false
+      failed_when: "'found 0 vulnerabilities' not in npm_audit.stdout and 'no vulnerabilities' not in npm_audit.stdout"
+
+    - name: 显示安全检查结果
+      debug:
+        msg: "{{ npm_audit.stdout }}"
+
+    - name: 执行生产构建
+      command: npm run build
+      args:
+        chdir: "{{ project_dir }}"
+      register: npm_build
+      changed_when: true
+
+    - name: 显示构建结果
+      debug:
+        msg: "构建完成，输出目录：{{ project_dir }}/{{ build_output_dir }}"
+
+    - name: 检查构建产物
+      stat:
+        path: "{{ project_dir }}/{{ build_output_dir }}/index.html"
+      register: build_index
+
+    - name: 验证构建产物
+      assert:
+        that:
+          - build_index.stat.exists
+        fail_msg: "构建产物不存在！"
+        success_msg: "构建产物验证通过"
+
+    - name: 显示部署信息
+      debug:
+        msg: |
+          ==============================================
+          部署完成！
+          项目目录：{{ project_dir }}
+          构建输出：{{ project_dir }}/{{ build_output_dir }}
+          
+          下一步：
+          1. 手动部署：cd {{ project_dir }} && vercel --prod
+          2. 或配置 GitHub + Vercel 自动部署
+          ==============================================
